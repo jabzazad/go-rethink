@@ -59,6 +59,27 @@ Whichever decider is "driving" answers the user. The others run in the backgroun
   - Rethink's corpus and the eval set were written by the same person and share phrasing, so Rethink has an advantage on this kind of test. Rethink needs a labelled corpus; the hosted models need none.
   - Samples are tiny and Laya's prompt was changed mid-test. This is evidence to follow up on, not a verdict.
 
+## Performance notes: how Rethink went from 37.8 µs to 0.9 µs
+
+The first version of `internal/decision/rethink.go` took **37.8 µs and 79 allocations** per decision. After profiling it takes **~0.9 µs and 1 allocation** (about 40× faster) with identical decisions. These are the patterns that were slow, and what replaced them. They apply to any hot path that runs on every message.
+
+| Slow pattern | Replaced with | Notes |
+|---|---|---|
+| Scoring the message against **every** example, with map lookups | An **inverted index** built once (n-gram → examples containing it); a query only touches examples that share a gram with it | the largest single win |
+| **Strings as map keys** (built a string per character pair/triple) | Pack the characters into one **integer key** | removes most allocations |
+| **Maps built per call** (counts, votes) | **Pooled buffers** (`sync.Pool`) and tiny fixed arrays for top-K and votes | less garbage, so less GC |
+| `sort.Slice` over all scores to get the top few | A small **top-K insertion array** | |
+| `fmt.Sprintf` for the reason text (the biggest cost left, ~0.7 µs) | `strconv.Append*`, integer maths for 2-decimal numbers | output is byte-identical |
+| Quoting and truncating the matched example on **every call** | Do it **once at startup** | |
+| `unicode.IsLetter` / `ToLower` per character | A **lookup table** for the common range (Latin, Thai); the slow path only for rare characters | |
+| Go `map` for the hot lookup | A small **open-addressing hash table** | |
+
+**Method.** Profile first (`go test -bench . -benchmem -cpuprofile cpu.prof`, then `go tool pprof -top`); the allocation count was the quickest sign of waste. Pin behaviour before optimising: `internal/decision/rethink_golden_test.go` stores 97 decisions plus the fitted calibration, so a speedup can't silently change answers. The one intended difference is that an empty message now returns `ai` instead of an arbitrary label (both route to the AI).
+
+Reproduce: `go test ./internal/decision -run xxx -bench Rethink -benchmem`.
+
+**Don't do this by default.** The original code was clearer, and 38 µs is irrelevant next to a ~1 s hosted-model call. Optimise only code that runs on every message or item, and only with a measurement showing it matters.
+
 ## Run
 
 ```bash
