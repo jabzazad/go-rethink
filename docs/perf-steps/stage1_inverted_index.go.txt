@@ -1,0 +1,291 @@
+package decision
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"slices"
+	"sync"
+	"time"
+	"unicode"
+
+	"poc-gateway/internal/bot"
+)
+
+// Stage 1: inverted index + packed integer n-gram keys + pooled scratch buffers
+// + top-K insertion array. Queries still sort every n-gram, use a Go map for the
+// gram lookup, and build the reason text with fmt.Sprintf.
+type Rethink struct {
+	MinConf float64
+	K       int
+
+	labels []string
+	texts  []string
+
+	gramIDs  map[uint64]int32 // packed n-gram -> id
+	postings [][]posting      // id -> documents containing the gram
+	docNorm  []float64
+	docQuery []query // each corpus doc as a query, for leave-one-out fitting
+
+	pool sync.Pool // *scratch
+
+	// Platt parameters.
+	A, B float64
+}
+
+type posting struct {
+	doc int32
+	n   float64 // occurrences of the gram in the doc
+}
+
+type gram struct {
+	id int32
+	n  float64 // occurrences in the query
+}
+
+// query is a vectorised message: known grams only, plus the norm over all grams.
+type query struct {
+	grams []gram
+	norm  float64
+}
+
+type scratch struct {
+	runes   []rune
+	keys    []uint64
+	grams   []gram
+	scores  []float64
+	touched []int32
+}
+
+// NewRethink indexes the corpus and fits calibration.
+func NewRethink(corpus []Example, minConf float64) *Rethink {
+	r := &Rethink{MinConf: minConf, K: 3, gramIDs: map[uint64]int32{}}
+	sc := &scratch{}
+	for i, ex := range corpus {
+		r.labels = append(r.labels, ex.Label)
+		r.texts = append(r.texts, ex.Text)
+		sc.keys = packGrams(sc, ex.Text)
+		var q query
+		forEachCount(sc.keys, func(key uint64, n float64) {
+			id, ok := r.gramIDs[key]
+			if !ok {
+				id = int32(len(r.postings))
+				r.gramIDs[key] = id
+				r.postings = append(r.postings, nil)
+			}
+			r.postings[id] = append(r.postings[id], posting{int32(i), n})
+			q.grams = append(q.grams, gram{id, n})
+			q.norm += n * n
+		})
+		q.norm = math.Sqrt(q.norm)
+		r.docQuery = append(r.docQuery, q)
+		r.docNorm = append(r.docNorm, q.norm)
+	}
+	r.pool.New = func() any { return &scratch{scores: make([]float64, len(r.labels))} }
+	r.fit()
+	return r
+}
+
+func (*Rethink) Name() string { return "rethink" }
+
+func (r *Rethink) Decide(_ context.Context, text string) Verdict {
+	start := time.Now()
+	sc := r.pool.Get().(*scratch)
+	q := r.vectorize(sc, text)
+	label, sim, nearest := r.predict(sc, q, -1)
+	r.pool.Put(sc)
+
+	p := sigmoid(r.A*sim + r.B)
+	v := Verdict{Decider: r.Name(), Label: label, Confidence: p}
+	switch {
+	case label == bot.LabelAI:
+		v.Reason = fmt.Sprintf("nearest examples are ai (sim %.2f, p %.2f) e.g. %q", sim, p, truncate(nearest, 40))
+	case p < r.MinConf:
+		v.Abstain = true
+		v.Reason = fmt.Sprintf("closest is %q but p %.2f < %.2f (sim %.2f): abstain, escalate", label, p, r.MinConf, sim)
+	default:
+		v.Reason = fmt.Sprintf("nearest %q (sim %.2f, p %.2f) e.g. %q", label, sim, p, truncate(nearest, 40))
+	}
+	v.LatencyUs = time.Since(start).Microseconds()
+	return v
+}
+
+type hit struct {
+	doc int32
+	sim float64
+}
+
+// predict does a similarity-weighted vote over the top K neighbours.
+// skip excludes one corpus index (for leave-one-out fitting).
+func (r *Rethink) predict(sc *scratch, q query, skip int) (label string, topSim float64, nearest string) {
+	// Accumulate dot products over only the documents that share a gram with the query.
+	sc.touched = sc.touched[:0]
+	for _, g := range q.grams {
+		for _, p := range r.postings[g.id] {
+			if sc.scores[p.doc] == 0 {
+				sc.touched = append(sc.touched, p.doc)
+			}
+			sc.scores[p.doc] += g.n * p.n
+		}
+	}
+
+	// Keep the top K by similarity (ties: lower doc index first).
+	var top [8]hit
+	k := min(r.K, len(top))
+	n := 0
+	for _, d := range sc.touched {
+		dot := sc.scores[d]
+		sc.scores[d] = 0 // reset for the next call
+		if int(d) == skip || q.norm == 0 {
+			continue
+		}
+		h := hit{d, dot / (q.norm * r.docNorm[d])}
+		if n == k && !better(h, top[n-1]) {
+			continue
+		}
+		if n < k {
+			n++
+		}
+		i := n - 1
+		for ; i > 0 && better(h, top[i-1]); i-- {
+			top[i] = top[i-1]
+		}
+		top[i] = h
+	}
+	if n == 0 {
+		return bot.LabelAI, 0, ""
+	}
+
+	var weights [8]float64
+	var names [8]string
+	m := 0
+	for _, h := range top[:n] {
+		l := r.labels[h.doc]
+		j := 0
+		for ; j < m && names[j] != l; j++ {
+		}
+		if j == m {
+			names[m] = l
+			m++
+		}
+		weights[j] += h.sim
+	}
+	best, bestW := bot.LabelAI, -1.0
+	for j := 0; j < m; j++ {
+		if weights[j] > bestW || (weights[j] == bestW && names[j] < best) {
+			best, bestW = names[j], weights[j]
+		}
+	}
+	// Report the similarity of the closest neighbour that carries the winning label.
+	for _, h := range top[:n] {
+		if r.labels[h.doc] == best {
+			return best, h.sim, r.texts[h.doc]
+		}
+	}
+	return best, top[0].sim, r.texts[top[0].doc]
+}
+
+func better(a, b hit) bool { return a.sim > b.sim || (a.sim == b.sim && a.doc < b.doc) }
+
+// fit learns Platt parameters by logistic regression on leave-one-out
+// (similarity, was-correct) pairs from the corpus.
+func (r *Rethink) fit() {
+	r.A, r.B = 10, -4 // sane default if the corpus is too small to fit
+	type pt struct{ x, y float64 }
+	var pts []pt
+	sc := r.pool.Get().(*scratch)
+	for i := range r.docQuery {
+		l, sim, _ := r.predict(sc, r.docQuery[i], i)
+		y := 0.0
+		if l == r.labels[i] {
+			y = 1
+		}
+		pts = append(pts, pt{sim, y})
+	}
+	r.pool.Put(sc)
+	var pos int
+	for _, p := range pts {
+		pos += int(p.y)
+	}
+	if len(pts) < 10 || pos == 0 || pos == len(pts) {
+		return
+	}
+	a, b := r.A, r.B
+	lr := 0.5
+	for iter := 0; iter < 5000; iter++ {
+		var ga, gb float64
+		for _, p := range pts {
+			d := sigmoid(a*p.x+b) - p.y
+			ga += d * p.x
+			gb += d
+		}
+		n := float64(len(pts))
+		a -= lr * ga / n
+		b -= lr * gb / n
+	}
+	// A must stay positive so higher similarity never means lower confidence.
+	if a > 0 && !math.IsNaN(a) && !math.IsNaN(b) {
+		r.A, r.B = a, b
+	}
+}
+
+// vectorize turns text into a query over the grams the corpus knows. The norm
+// counts every gram, known or not, so unseen grams still lower the similarity.
+func (r *Rethink) vectorize(sc *scratch, text string) query {
+	sc.keys = packGrams(sc, text)
+	sc.grams = sc.grams[:0]
+	var sq float64
+	forEachCount(sc.keys, func(key uint64, n float64) {
+		sq += n * n
+		if id, ok := r.gramIDs[key]; ok {
+			sc.grams = append(sc.grams, gram{id, n})
+		}
+	})
+	return query{grams: sc.grams, norm: math.Sqrt(sq)}
+}
+
+// packGrams normalises text (lower-case; letters, digits and combining marks only;
+// runs of anything else collapse to one space; padded with one space each side) and
+// returns its sorted character 2- and 3-grams packed into integers.
+func packGrams(sc *scratch, text string) []uint64 {
+	rs := append(sc.runes[:0], ' ')
+	pendingSpace := false
+	for _, ch := range text {
+		ch = unicode.ToLower(ch)
+		if unicode.IsLetter(ch) || unicode.IsNumber(ch) || unicode.Is(unicode.Mn, ch) {
+			if pendingSpace {
+				rs = append(rs, ' ')
+				pendingSpace = false
+			}
+			rs = append(rs, ch)
+		} else if len(rs) > 1 {
+			pendingSpace = true
+		}
+	}
+	rs = append(rs, ' ') // nothing kept leaves exactly two spaces, as before
+	sc.runes = rs
+
+	keys := sc.keys[:0]
+	for i := 0; i+2 <= len(rs); i++ {
+		keys = append(keys, uint64(rs[i])<<21|uint64(rs[i+1]))
+	}
+	for i := 0; i+3 <= len(rs); i++ {
+		keys = append(keys, 1<<63|uint64(rs[i])<<42|uint64(rs[i+1])<<21|uint64(rs[i+2]))
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// forEachCount calls f once per distinct key in a sorted slice with its count.
+func forEachCount(keys []uint64, f func(key uint64, n float64)) {
+	for i := 0; i < len(keys); {
+		j := i + 1
+		for j < len(keys) && keys[j] == keys[i] {
+			j++
+		}
+		f(keys[i], float64(j-i))
+		i = j
+	}
+}
+
+func sigmoid(x float64) float64 { return 1 / (1 + math.Exp(-x)) }

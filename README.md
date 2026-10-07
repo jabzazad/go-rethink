@@ -45,7 +45,7 @@ Other credits: [Convai Innovations](https://huggingface.co/convaiinnovations/lay
 | What | Local, modelless nearest-neighbour engine | A hosted decision model, called through Vercel AI Gateway (`POST /v1/evaluate`) |
 | How it decides | Cosine over char 2/3-grams against a labelled corpus, Platt-calibrated `p = σ(A·sim + B)`, **abstains** below a threshold | One `choice` question over the intents + `ai`; returns probabilities |
 | Cost | Free, in-process | Free, but rate-limited to 5 req/min on Vercel's free tier |
-| Latency | ~0.9 µs per decision (was ~38 µs before the optimisation, same answers) | ~0.5–1.4 s |
+| Latency | ~0.95 µs per decision (was ~38 µs before the optimisation, same answers) | ~0.5–1.4 s |
 
 A keyword matcher runs alongside as a baseline. Each message is then answered by a canned handler or by Gemini.
 
@@ -59,26 +59,54 @@ Whichever decider is "driving" answers the user. The others run in the backgroun
   - Rethink's corpus and the eval set were written by the same person and share phrasing, so Rethink has an advantage on this kind of test. Rethink needs a labelled corpus; the hosted models need none.
   - Samples are tiny and Laya's prompt was changed mid-test. This is evidence to follow up on, not a verdict.
 
-## Performance notes: how Rethink went from 37.8 µs to 0.9 µs
+## Performance notes: how Rethink went from 38 µs to 0.95 µs
 
-The first version of `internal/decision/rethink.go` took **37.8 µs and 79 allocations** per decision. After profiling it takes **~0.9 µs and 1 allocation** (about 40× faster) with identical decisions. These are the patterns that were slow, and what replaced them. They apply to any hot path that runs on every message.
+`internal/decision/rethink.go` was optimised in three stages. Every stage is a real file you can read, diff and benchmark yourself, and **every stage returns the same decisions** (checked by a golden test).
 
-| Slow pattern | Replaced with | Notes |
-|---|---|---|
-| Scoring the message against **every** example, with map lookups | An **inverted index** built once (n-gram → examples containing it); a query only touches examples that share a gram with it | the largest single win |
-| **Strings as map keys** (built a string per character pair/triple) | Pack the characters into one **integer key** | removes most allocations |
-| **Maps built per call** (counts, votes) | **Pooled buffers** (`sync.Pool`) and tiny fixed arrays for top-K and votes | less garbage, so less GC |
-| `sort.Slice` over all scores to get the top few | A small **top-K insertion array** | |
-| `fmt.Sprintf` for the reason text (the biggest cost left, ~0.7 µs) | `strconv.Append*`, integer maths for 2-decimal numbers | output is byte-identical |
-| Quoting and truncating the matched example on **every call** | Do it **once at startup** | |
-| `unicode.IsLetter` / `ToLower` per character | A **lookup table** for the common range (Latin, Thai); the slow path only for rare characters | |
-| Go `map` for the hot lookup | A small **open-addressing hash table** | |
+| Stage | File in `docs/perf-steps/` | ns/op | allocs/op | vs previous | vs baseline |
+|---|---|---|---|---|---|
+| 0 baseline | `stage0_baseline.go.txt` (the first version, commit `138f91f`) | 38,536 | 79 | | 1× |
+| 1 inverted index | `stage1_inverted_index.go.txt` | 3,033 | 5 | 12.7× | 12.7× |
+| 2 tables, no sort | `stage2_tables_no_sort.go.txt` | 1,678 | 1 | 1.8× | 23× |
+| 3 cheap reason (shipped) | `stage3_cheap_reason.go.txt` (= `rethink.go`, apart from the header comment) | 953 | 1 | 1.8× | 40× |
 
-**Method.** Profile first (`go test -bench . -benchmem -cpuprofile cpu.prof`, then `go tool pprof -top`); the allocation count was the quickest sign of waste. Pin behaviour before optimising: `internal/decision/rethink_golden_test.go` stores 97 decisions plus the fitted calibration, so a speedup can't silently change answers. The one intended difference is that an empty message now returns `ai` instead of an arbitrary label (both route to the AI).
+Median of 5 runs per stage, `go test -bench RethinkDecide -benchmem -count 5`. Machine: Intel i7-14700KF, Windows, Go 1.25. Corpus: 80 labelled examples. Absolute numbers will differ on your machine; the ratios are the point.
 
-Reproduce: `go test ./internal/decision -run xxx -bench Rethink -benchmem`.
+### What changed at each stage
 
-**Don't do this by default.** The original code was clearer, and 38 µs is irrelevant next to a ~1 s hosted-model call. Optimise only code that runs on every message or item, and only with a measurement showing it matters.
+**Stage 0 → 1 (38.5 → 3.0 µs).** The baseline scored the message against every example, building a string-keyed map per message. Stage 1 changes four things together:
+- an **inverted index**, built once (n-gram → examples that contain it), so a query only touches examples it shares something with;
+- n-grams packed into **integer keys** instead of strings;
+- **pooled buffers** (`sync.Pool`) and tiny fixed arrays for the top-3 neighbours and the votes, instead of per-call maps and `sort.Slice`.
+
+These four were measured as one step, so I can't say how much each contributed on its own.
+
+**Stage 1 → 2 (3.0 → 1.7 µs).** A profile of stage 1 showed time in four places: the Unicode checks, sorting every n-gram, Go map lookups, and `fmt.Sprintf`. Stage 2 fixes all four:
+- a **lookup table** for "is this character kept, and what is its lower-case form" (Latin, Thai; rarer characters use the slow path);
+- **counting n-grams into reusable arrays** instead of sorting them;
+- a small **open-addressing hash table** instead of a Go `map`;
+- the reason text built with `strconv` instead of `fmt.Sprintf`.
+
+**Stage 2 → 3 (1.7 → 0.95 µs).** What was left was the reason text. Stage 3 **precomputes the quoted example text once at startup** and formats the 2-decimal numbers with integer maths. The output is byte-identical.
+
+### Follow along
+
+```bash
+bash docs/perf-steps/run.sh        # benchmarks all four stages (pass a number for run count)
+diff docs/perf-steps/stage1_inverted_index.go.txt docs/perf-steps/stage2_tables_no_sort.go.txt
+```
+
+To find the next bottleneck in your own code: `go test ./internal/decision -run xxx -bench Rethink -cpuprofile cpu.prof`, then `go tool pprof -top cpu.prof`. The allocation count (`-benchmem`) is the quickest sign of waste.
+
+### Safety net
+
+`internal/decision/rethink_golden_test.go` stores 97 decisions plus the fitted calibration values from the baseline. Stages 1, 2 and 3 all pass it. The baseline differs only for an empty or whitespace-only message (it returned an arbitrary label; the new code returns `ai`, and both route to the AI), so that case is pinned to the new behaviour.
+
+### Caveats
+
+- Stage 1 bundles four changes (see above); stages 2 and 3 bundle several smaller ones. Per-change savings inside a stage are **not** separately measured.
+- One machine, one corpus size. The inverted index helps most when most examples don't overlap a message; a corpus of thousands of near-duplicates would change the numbers, and I haven't measured that.
+- **Don't optimise by default.** The baseline was clearer, and 38 µs is irrelevant next to a ~1 s hosted-model call. Do this only for code that runs on every message or item, and only with a measurement showing it matters.
 
 ## Run
 

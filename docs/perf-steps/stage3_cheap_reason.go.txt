@@ -1,0 +1,447 @@
+package decision
+
+import (
+	"context"
+	"math"
+	"slices"
+	"strconv"
+	"sync"
+	"time"
+	"unicode"
+
+	"poc-gateway/internal/bot"
+)
+
+// Stage 3 (shipped): stage 2 plus the quoted example text precomputed at startup
+// and 2-decimal numbers formatted with integer maths.
+type Rethink struct {
+	MinConf float64
+	K       int
+
+	labels []string
+	// quoted[i] is the corpus text of doc i, truncated and quoted, ready for reasons.
+	quoted []string
+
+	gramIDs  gramTable   // packed n-gram -> id
+	postings [][]posting // id -> documents containing the gram
+	docNorm  []float64
+	docQuery []query // each corpus doc as a query, for leave-one-out fitting
+
+	pool sync.Pool // *scratch
+
+	// Platt parameters.
+	A, B float64
+}
+
+type posting struct {
+	doc int32
+	n   float64 // occurrences of the gram in the doc
+}
+
+type gram struct {
+	id int32
+	n  float64 // occurrences in the query
+}
+
+// query is a vectorised message: known grams only, plus the norm over all grams.
+type query struct {
+	grams []gram
+	norm  float64
+}
+
+type scratch struct {
+	runes   []rune
+	keys    []uint64 // index-time only
+	grams   []gram
+	scores  []float64
+	touched []int32
+	qcnt    []float64 // per gram id: occurrences in the current query
+	known   []int32   // gram ids touched in qcnt
+	unknown []uint64  // query grams the corpus has never seen
+}
+
+// gramTable is an open-addressing hash table from packed n-gram to id. It replaces
+// a Go map on the hot path: no hashing of interfaces, no bucket indirection.
+type gramTable struct {
+	keys []uint64 // 0 = empty (a packed n-gram is never 0)
+	ids  []int32
+	mask uint64
+}
+
+func newGramTable(n int) gramTable {
+	size := 16
+	for size < n*2 {
+		size <<= 1
+	}
+	return gramTable{keys: make([]uint64, size), ids: make([]int32, size), mask: uint64(size - 1)}
+}
+
+func (t *gramTable) slot(key uint64) uint64 { return (key * 0x9E3779B97F4A7C15 >> 20) & t.mask }
+
+func (t *gramTable) get(key uint64) (int32, bool) {
+	for i := t.slot(key); ; i = (i + 1) & t.mask {
+		switch t.keys[i] {
+		case key:
+			return t.ids[i], true
+		case 0:
+			return 0, false
+		}
+	}
+}
+
+func (t *gramTable) put(key uint64, id int32) {
+	for i := t.slot(key); ; i = (i + 1) & t.mask {
+		if t.keys[i] == 0 || t.keys[i] == key {
+			t.keys[i], t.ids[i] = key, id
+			return
+		}
+	}
+}
+
+// NewRethink indexes the corpus and fits calibration.
+func NewRethink(corpus []Example, minConf float64) *Rethink {
+	r := &Rethink{MinConf: minConf, K: 3}
+	ids := map[uint64]int32{}
+	sc := &scratch{}
+	for i, ex := range corpus {
+		r.labels = append(r.labels, ex.Label)
+		r.quoted = append(r.quoted, strconv.Quote(truncate(ex.Text, 40)))
+		sc.keys = packGrams(sc, ex.Text)
+		var q query
+		forEachCount(sc.keys, func(key uint64, n float64) {
+			id, ok := ids[key]
+			if !ok {
+				id = int32(len(r.postings))
+				ids[key] = id
+				r.postings = append(r.postings, nil)
+			}
+			r.postings[id] = append(r.postings[id], posting{int32(i), n})
+			q.grams = append(q.grams, gram{id, n})
+			q.norm += n * n
+		})
+		q.norm = math.Sqrt(q.norm)
+		r.docQuery = append(r.docQuery, q)
+		r.docNorm = append(r.docNorm, q.norm)
+	}
+	r.gramIDs = newGramTable(len(ids))
+	for key, id := range ids {
+		r.gramIDs.put(key, id)
+	}
+	r.pool.New = func() any {
+		return &scratch{scores: make([]float64, len(r.labels)), qcnt: make([]float64, len(r.postings))}
+	}
+	r.fit()
+	return r
+}
+
+func (*Rethink) Name() string { return "rethink" }
+
+func (r *Rethink) Decide(_ context.Context, text string) Verdict {
+	start := time.Now()
+	sc := r.pool.Get().(*scratch)
+	q := r.vectorize(sc, text)
+	label, sim, nearest := r.predict(sc, q, -1)
+	r.pool.Put(sc)
+
+	p := sigmoid(r.A*sim + r.B)
+	v := Verdict{Decider: r.Name(), Label: label, Confidence: p}
+	// The reason is built with strconv rather than fmt: it was the biggest cost left.
+	buf := make([]byte, 0, 112)
+	switch {
+	case label == bot.LabelAI:
+		buf = append(buf, "nearest examples are ai (sim "...)
+		buf = appendF(buf, sim)
+		buf = append(buf, ", p "...)
+		buf = appendF(buf, p)
+		buf = append(buf, ") e.g. "...)
+		buf = append(buf, r.quotedAt(nearest)...)
+	case p < r.MinConf:
+		v.Abstain = true
+		buf = append(buf, "closest is "...)
+		buf = appendQuoted(buf, label)
+		buf = append(buf, " but p "...)
+		buf = appendF(buf, p)
+		buf = append(buf, " < "...)
+		buf = appendF(buf, r.MinConf)
+		buf = append(buf, " (sim "...)
+		buf = appendF(buf, sim)
+		buf = append(buf, "): abstain, escalate"...)
+	default:
+		buf = append(buf, "nearest "...)
+		buf = appendQuoted(buf, label)
+		buf = append(buf, " (sim "...)
+		buf = appendF(buf, sim)
+		buf = append(buf, ", p "...)
+		buf = appendF(buf, p)
+		buf = append(buf, ") e.g. "...)
+		buf = append(buf, r.quotedAt(nearest)...)
+	}
+	v.Reason = string(buf)
+	v.LatencyUs = time.Since(start).Microseconds()
+	return v
+}
+
+type hit struct {
+	doc int32
+	sim float64
+}
+
+// predict does a similarity-weighted vote over the top K neighbours.
+// skip excludes one corpus index (for leave-one-out fitting).
+func (r *Rethink) predict(sc *scratch, q query, skip int) (label string, topSim float64, nearest int) {
+	// Accumulate dot products over only the documents that share a gram with the query.
+	sc.touched = sc.touched[:0]
+	for _, g := range q.grams {
+		for _, p := range r.postings[g.id] {
+			if sc.scores[p.doc] == 0 {
+				sc.touched = append(sc.touched, p.doc)
+			}
+			sc.scores[p.doc] += g.n * p.n
+		}
+	}
+
+	// Keep the top K by similarity (ties: lower doc index first).
+	var top [8]hit
+	k := min(r.K, len(top))
+	n := 0
+	for _, d := range sc.touched {
+		dot := sc.scores[d]
+		sc.scores[d] = 0 // reset for the next call
+		if int(d) == skip || q.norm == 0 {
+			continue
+		}
+		h := hit{d, dot / (q.norm * r.docNorm[d])}
+		if n == k && !better(h, top[n-1]) {
+			continue
+		}
+		if n < k {
+			n++
+		}
+		i := n - 1
+		for ; i > 0 && better(h, top[i-1]); i-- {
+			top[i] = top[i-1]
+		}
+		top[i] = h
+	}
+	if n == 0 {
+		return bot.LabelAI, 0, -1
+	}
+
+	var weights [8]float64
+	var names [8]string
+	m := 0
+	for _, h := range top[:n] {
+		l := r.labels[h.doc]
+		j := 0
+		for ; j < m && names[j] != l; j++ {
+		}
+		if j == m {
+			names[m] = l
+			m++
+		}
+		weights[j] += h.sim
+	}
+	best, bestW := bot.LabelAI, -1.0
+	for j := 0; j < m; j++ {
+		if weights[j] > bestW || (weights[j] == bestW && names[j] < best) {
+			best, bestW = names[j], weights[j]
+		}
+	}
+	// Report the similarity of the closest neighbour that carries the winning label.
+	for _, h := range top[:n] {
+		if r.labels[h.doc] == best {
+			return best, h.sim, int(h.doc)
+		}
+	}
+	return best, top[0].sim, int(top[0].doc)
+}
+
+// appendF formats a value in [0, ~1] with two decimals, like %.2f, without fmt/strconv floats.
+func appendF(b []byte, x float64) []byte {
+	if x < 0 || x > 1000 {
+		return strconv.AppendFloat(b, x, 'f', 2, 64)
+	}
+	c := int(x*100 + 0.5)
+	b = strconv.AppendInt(b, int64(c/100), 10)
+	return append(b, '.', byte('0'+c/10%10), byte('0'+c%10))
+}
+
+// appendQuoted quotes plain labels directly; anything unusual goes through strconv.
+func appendQuoted(b []byte, s string) []byte {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 0x20 || c >= 0x7f || c == '"' || c == '\\' {
+			return strconv.AppendQuote(b, s)
+		}
+	}
+	b = append(b, '"')
+	b = append(b, s...)
+	return append(b, '"')
+}
+
+func (r *Rethink) quotedAt(doc int) string {
+	if doc < 0 {
+		return `""`
+	}
+	return r.quoted[doc]
+}
+
+func better(a, b hit) bool { return a.sim > b.sim || (a.sim == b.sim && a.doc < b.doc) }
+
+// fit learns Platt parameters by logistic regression on leave-one-out
+// (similarity, was-correct) pairs from the corpus.
+func (r *Rethink) fit() {
+	r.A, r.B = 10, -4 // sane default if the corpus is too small to fit
+	type pt struct{ x, y float64 }
+	var pts []pt
+	sc := r.pool.Get().(*scratch)
+	for i := range r.docQuery {
+		l, sim, _ := r.predict(sc, r.docQuery[i], i)
+		y := 0.0
+		if l == r.labels[i] {
+			y = 1
+		}
+		pts = append(pts, pt{sim, y})
+	}
+	r.pool.Put(sc)
+	var pos int
+	for _, p := range pts {
+		pos += int(p.y)
+	}
+	if len(pts) < 10 || pos == 0 || pos == len(pts) {
+		return
+	}
+	a, b := r.A, r.B
+	lr := 0.5
+	for iter := 0; iter < 5000; iter++ {
+		var ga, gb float64
+		for _, p := range pts {
+			d := sigmoid(a*p.x+b) - p.y
+			ga += d * p.x
+			gb += d
+		}
+		n := float64(len(pts))
+		a -= lr * ga / n
+		b -= lr * gb / n
+	}
+	// A must stay positive so higher similarity never means lower confidence.
+	if a > 0 && !math.IsNaN(a) && !math.IsNaN(b) {
+		r.A, r.B = a, b
+	}
+}
+
+// vectorize turns text into a query over the grams the corpus knows. The norm
+// counts every gram, known or not, so unseen grams still lower the similarity.
+func (r *Rethink) vectorize(sc *scratch, text string) query {
+	rs := normalize(sc, text)
+	sc.known, sc.unknown = sc.known[:0], sc.unknown[:0]
+	add := func(key uint64) {
+		if id, ok := r.gramIDs.get(key); ok {
+			if sc.qcnt[id] == 0 {
+				sc.known = append(sc.known, id)
+			}
+			sc.qcnt[id]++
+		} else {
+			sc.unknown = append(sc.unknown, key)
+		}
+	}
+	for i := 0; i+2 <= len(rs); i++ {
+		add(key2(rs[i], rs[i+1]))
+	}
+	for i := 0; i+3 <= len(rs); i++ {
+		add(key3(rs[i], rs[i+1], rs[i+2]))
+	}
+
+	var sq float64
+	sc.grams = sc.grams[:0]
+	for _, id := range sc.known {
+		n := sc.qcnt[id]
+		sq += n * n
+		sc.grams = append(sc.grams, gram{id, n})
+		sc.qcnt[id] = 0 // reset for the next call
+	}
+	if len(sc.unknown) > 0 { // distinct unseen grams, counted by sorting the few there are
+		slices.Sort(sc.unknown)
+		forEachCount(sc.unknown, func(_ uint64, n float64) { sq += n * n })
+	}
+	return query{grams: sc.grams, norm: math.Sqrt(sq)}
+}
+
+func key2(a, b rune) uint64    { return uint64(a)<<21 | uint64(b) }
+func key3(a, b, c rune) uint64 { return 1<<63 | uint64(a)<<42 | uint64(b)<<21 | uint64(c) }
+
+// keepTable maps a rune below keepLimit to its lower-case form if it is kept
+// (letter, digit or combining mark), or 0 if it separates words. It covers Latin,
+// Thai and the other common alphabets; anything above falls back to package unicode.
+const keepLimit = 0x3000
+
+var keepTable [keepLimit]rune
+
+func init() {
+	for c := rune(0); c < keepLimit; c++ {
+		keepTable[c] = keepSlow(c)
+	}
+}
+
+func keepSlow(ch rune) rune {
+	ch = unicode.ToLower(ch)
+	if unicode.IsLetter(ch) || unicode.IsNumber(ch) || unicode.Is(unicode.Mn, ch) {
+		return ch
+	}
+	return 0
+}
+
+// normalize lower-cases text, keeps letters, digits and combining marks, collapses
+// every other run to one space, and pads one space on each side.
+func normalize(sc *scratch, text string) []rune {
+	rs := append(sc.runes[:0], ' ')
+	pendingSpace := false
+	for _, ch := range text {
+		var k rune
+		if ch < keepLimit {
+			k = keepTable[ch]
+		} else {
+			k = keepSlow(ch)
+		}
+		if k != 0 {
+			if pendingSpace {
+				rs = append(rs, ' ')
+				pendingSpace = false
+			}
+			rs = append(rs, k)
+		} else if len(rs) > 1 {
+			pendingSpace = true
+		}
+	}
+	rs = append(rs, ' ') // nothing kept leaves exactly two spaces
+	sc.runes = rs
+	return rs
+}
+
+// packGrams returns the sorted packed 2- and 3-grams of text. Used at index time;
+// queries count into arrays instead of sorting.
+func packGrams(sc *scratch, text string) []uint64 {
+	rs := normalize(sc, text)
+	keys := sc.keys[:0]
+	for i := 0; i+2 <= len(rs); i++ {
+		keys = append(keys, key2(rs[i], rs[i+1]))
+	}
+	for i := 0; i+3 <= len(rs); i++ {
+		keys = append(keys, key3(rs[i], rs[i+1], rs[i+2]))
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// forEachCount calls f once per distinct key in a sorted slice with its count.
+func forEachCount(keys []uint64, f func(key uint64, n float64)) {
+	for i := 0; i < len(keys); {
+		j := i + 1
+		for j < len(keys) && keys[j] == keys[i] {
+			j++
+		}
+		f(keys[i], float64(j-i))
+		i = j
+	}
+}
+
+func sigmoid(x float64) float64 { return 1 / (1 + math.Exp(-x)) }
