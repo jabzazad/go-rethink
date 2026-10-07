@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decision Gateway</title>
+<style>
+:root{
+  --bg:#f6f7f9;--card:#fff;--ink:#16181d;--muted:#667085;--line:#e4e7ec;
+  --bot:#1f9d6b;--ai:#6d5ae6;--warn:#d97706;--bad:#d92d20;--chip:#f2f4f7;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1115;--card:#171a21;--ink:#e6e8ee;--muted:#98a2b3;--line:#262b36;
+  --bot:#34d399;--ai:#a78bfa;--warn:#fbbf24;--bad:#f87171;--chip:#222733;color-scheme:dark;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI","Noto Sans Thai",sans-serif}
+main{max-width:1240px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:20px;margin:0}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px;font-weight:600}
+header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;margin-bottom:16px}
+.sub{color:var(--muted)}
+.grid{display:grid;gap:12px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:12px}
+.two{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.kpi .v{font-size:24px;font-weight:650;font-variant-numeric:tabular-nums}
+.kpi .l{color:var(--muted);font-size:12px}
+.kpi .h{color:var(--muted);font-size:11px;margin-top:2px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:600}
+td.num,th.num{text-align:right}
+td.wrap{white-space:normal;min-width:220px}
+.chip{display:inline-block;padding:1px 7px;border-radius:99px;background:var(--chip);font-size:12px}
+.bot{color:var(--bot)}.ai{color:var(--ai)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.chip.bot{background:color-mix(in srgb,var(--bot) 15%,transparent)}
+.chip.ai{background:color-mix(in srgb,var(--ai) 15%,transparent)}
+.chip.bad{background:color-mix(in srgb,var(--bad) 15%,transparent)}
+.bar{display:grid;grid-template-columns:110px 1fr 48px;gap:8px;align-items:center;margin:5px 0}
+.bar .t{height:10px;background:var(--chip);border-radius:5px;overflow:hidden}
+.bar .f{height:100%;border-radius:5px}
+form{display:flex;gap:8px;flex-wrap:wrap}
+input[type=text]{flex:1;min-width:200px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+button{padding:9px 14px;border:0;border-radius:8px;background:var(--ink);color:var(--bg);font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+button.ghost{background:var(--chip);color:var(--ink)}
+select{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
+.reply{margin-top:12px;white-space:pre-wrap}
+.samples{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.samples button{padding:4px 9px;font-weight:400;font-size:12px}
+.muted{color:var(--muted)}
+.win{font-weight:650;color:var(--bot)}
+.win::after{content:" ✓"}
+.small{font-size:12px}
+section{margin-top:12px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Decision Gateway: bot vs AI</h1>
+  <span class="sub" id="cfg">loading…</span>
+  <span class="chip" id="slot" style="margin-left:auto"></span>
+  <select id="range" title="Time range (from MongoDB)">
+    <option value="15m">Last 15 min</option><option value="1h">Last hour</option>
+    <option value="24h">Last 24 h</option><option value="7d">Last 7 days</option>
+    <option value="all" selected>All time</option>
+  </select>
+  <span class="chip" id="src"></span>
+</header>
+
+<div class="grid kpis" id="kpis"></div>
+
+<section class="card" style="margin-bottom:12px">
+  <h2 id="h2htitle">Jev vs Rethink: head to head</h2>
+  <div class="scroll"><table id="h2h"></table></div>
+  <p class="muted small" id="h2hnote"></p>
+</section>
+
+<section class="card" style="margin-bottom:12px">
+  <h2>Live A/B: while each decider was driving replies</h2>
+  <div class="scroll"><table id="ab"></table></div>
+  <p class="muted small" id="abnote"></p>
+</section>
+
+<div class="grid two">
+  <div class="card">
+    <h2>Try a message</h2>
+    <form id="try"><input type="text" id="msg" placeholder="พิมพ์ข้อความ… (prefix /ai or /bot to force)" autocomplete="off"><button id="send">Send</button></form>
+    <div class="muted small" style="margin-top:12px">Rich menu taps (known answer, scored)</div>
+    <div class="samples" id="menu"></div>
+    <div class="muted small" style="margin-top:8px">Free text</div>
+    <div class="samples" id="samples"></div>
+    <div id="tryout" class="reply muted small">The full flow runs: every decider, then the bot or Gemini.</div>
+  </div>
+  <div class="card">
+    <h2>Routes and intent hits</h2>
+    <div id="routes"></div>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Decider comparison (live traffic)</h2>
+  <div class="scroll"><table id="deciders"></table></div>
+  <p class="muted small" id="decnote"></p>
+</section>
+
+<section class="card">
+  <h2>Accuracy on labelled eval set</h2>
+  <form id="evalform"><button id="evalbtn" class="ghost">Run eval</button><span class="muted small" id="evalmeta" style="align-self:center"></span></form>
+  <div class="scroll" style="margin-top:10px"><table id="eval"></table></div>
+  <details style="margin-top:8px"><summary class="small muted">Misses</summary><div class="scroll"><table id="misses"></table></div></details>
+</section>
+
+<section class="card">
+  <h2>Gemini (AI responder)</h2>
+  <div class="scroll"><table id="gemini"></table></div>
+</section>
+
+<section class="card">
+  <h2>AI call log (MongoDB)</h2>
+  <div class="scroll"><table id="ailogs"></table></div>
+</section>
+
+<section class="card">
+  <h2>Recent messages</h2>
+  <div class="scroll"><table id="recent"></table></div>
+</section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const usd = v => v == null ? "–" : (v === 0 ? "$0" : v < 0.01 ? "$" + v.toFixed(6) : "$" + v.toFixed(4));
+const pct = v => (v * 100).toFixed(1) + "%";
+const ms = v => v < 0.001 ? (v * 1e6).toFixed(0) + " ns" : v < 1 ? (v * 1000).toFixed(v < 0.01 ? 1 : 0) + " µs" : v.toFixed(v < 10 ? 2 : 0) + " ms";
+const num = v => (v ?? 0).toLocaleString();
+const routeChip = l => `<span class="chip ${l === "ai" ? "ai" : "bot"}">${esc(l || "?")}</span>`;
+const ORDER = ["jev", "rethink", "keyword"];
+// The "jev" slot can run any decision model (e.g. Laya); show the model's name.
+const NAME = n => n === "jev" ? (window.__cfg?.jev_label || "jev") : n;
+const ROLE = {jev: "primary", rethink: "fallback", keyword: "shadow baseline"};
+
+const SAMPLES = ["สวัสดีครับ", "เปิดกี่โมง", "ราคาเท่าไหร่", "ขอเบอร์โทร", "งานถึงไหนแล้ว",
+  "แอร์มีน้ำหยด เกิดจากอะไร", "ราคาทาสีบ้านสองชั้น 200 ตร.ม. ประมาณกี่บาท", "/ai สวัสดี"];
+$("samples").innerHTML = SAMPLES.map(s => `<button class="ghost" type="button">${esc(s)}</button>`).join("");
+$("samples").onclick = e => { if (e.target.tagName === "BUTTON") { $("msg").value = e.target.textContent; send(); } };
+let menuRendered = false;
+function renderMenu(buttons) {
+  if (menuRendered || !buttons.length) return;
+  menuRendered = true;
+  $("menu").innerHTML = buttons.map((b, i) => `<button class="ghost" type="button" data-i="${i}" style="border-left:4px solid rgb(${b.Color.R},${b.Color.G},${b.Color.B})">${esc(b.Title)}</button>`).join("");
+  $("menu").onclick = e => {
+    const b = buttons[e.target.dataset?.i];
+    if (!b) return;
+    simulate(b.Postback ? {test: true} : {text: b.Text, expected: b.Expected});
+  };
+}
+
+function kpi(label, value, hint, cls = "") {
+  return `<div class="card kpi"><div class="l">${label}</div><div class="v ${cls}">${value}</div>${hint ? `<div class="h">${hint}</div>` : ""}</div>`;
+}
+
+function render({config: c, stats: s}) {
+  const swapping = c.jev_enabled && c.mode === "swap";
+  ROLE.jev = !c.jev_enabled ? "disabled (no key)" : swapping ? "swap A" : c.mode === "jev" ? "drives replies" : "shadow";
+  ROLE.rethink = swapping ? "swap B · fallback" : c.mode === "jev" && c.jev_enabled ? "fallback · shadow" : "drives replies";
+  $("cfg").textContent = `mode: ${c.mode}${swapping ? ` every ${c.swap_interval_s}s` : ""} · Rethink is the fallback when ${esc(NAME("jev"))} errors or hits its ${c.jev_max_rpm ? c.jev_max_rpm + "/min " : ""}cap · AI: ${c.gemini_enabled ? c.gemini_model : "Gemini not configured"}`;
+  const n = window.__now || {};
+  $("slot").innerHTML = `driving now: <b>${esc(NAME(n.scheduled))}</b>${n.slot_ends_in_s != null ? ` · swaps in ${Math.ceil(n.slot_ends_in_s)}s` : ""}`;
+  renderMenu(c.menu_buttons || []);
+  renderAB(c, s);
+
+  const co = s.cost;
+  $("kpis").innerHTML = [
+    kpi("Messages", num(s.total), `${num(s.overrides)} forced by prefix`),
+    kpi("Answered by bot", pct(s.bot_share || 0), `${num(s.routes.bot)} bot · ${num(s.routes.ai)} AI`, "bot"),
+    kpi("Jev fallbacks", num(s.fallbacks), c.jev_enabled ? "Jev error → Rethink" : "Jev disabled", s.fallbacks ? "warn" : ""),
+    kpi("Total cost", usd(co.total_usd), `decide ${usd(co.decision_usd)} + Gemini ${usd(co.gemini_usd)}`),
+    kpi("Cost / message", usd(co.per_msg_usd)),
+    kpi("If all went to AI", co.estimated ? usd(co.all_ai_usd) : "–", co.estimated ? "avg Gemini call × messages" : "needs ≥1 Gemini call"),
+    kpi("Saved", co.estimated ? usd(co.saved_usd) : "–", co.estimated && co.all_ai_usd > 0 ? pct(co.saved_usd / co.all_ai_usd) + " vs all-AI" : "", co.saved_usd > 0 ? "bot" : ""),
+  ].join("");
+
+  // Routes + intents
+  const total = Math.max(1, s.total);
+  const bars = [["bot", s.routes.bot, "var(--bot)"], ["ai", s.routes.ai, "var(--ai)"]]
+    .map(([l, v, col]) => `<div class="bar"><b>${l}</b><div class="t"><div class="f" style="width:${v / total * 100}%;background:${col}"></div></div><span class="num">${num(v)}</span></div>`).join("");
+  const im = Math.max(1, ...Object.values(s.intents));
+  const intents = c.labels.filter(l => l !== "ai").map(l => [l, s.intents[l] || 0]).sort((a, b) => b[1] - a[1])
+    .map(([l, v]) => `<div class="bar"><span>${esc(l)}</span><div class="t"><div class="f" style="width:${v / im * 100}%;background:var(--bot);opacity:.7"></div></div><span>${num(v)}</span></div>`).join("");
+  $("routes").innerHTML = bars + `<div class="muted small" style="margin:12px 0 4px">Bot intent hits</div>` + intents;
+
+  // Decider table
+  const names = ORDER.filter(n => s.deciders[n] || (n === "jev" && c.jev_enabled) || n !== "jev");
+  $("deciders").innerHTML = `<tr><th>Decider</th><th>Role</th><th class="num">Calls</th><th class="num">Drove reply</th><th class="num">→ bot</th><th class="num">→ AI</th><th class="num">Abstain</th><th class="num">Errors</th><th class="num">Agree w/ final</th><th class="num">Avg</th><th class="num">p50</th><th class="num">p95</th><th class="num">Tokens in</th><th class="num">Cost</th><th class="num">Cost / call</th></tr>` +
+    names.map(n => {
+      const d = s.deciders[n] || {calls: 0, labels: {}};
+      const scored = d.calls - s.overrides;
+      return `<tr><td><b>${esc(NAME(n))}</b></td><td class="muted">${ROLE[n]}</td><td class="num">${num(d.calls)}</td><td class="num">${num(d.active)}</td>
+        <td class="num bot">${num(d.route_bot)}</td><td class="num ai">${num(d.route_ai)}</td><td class="num">${num(d.abstains)}</td>
+        <td class="num ${d.errors ? "bad" : ""}">${num(d.errors)}</td><td class="num">${scored > 0 ? pct(d.agree_final / scored) : "–"}</td>
+        <td class="num">${d.calls ? ms(d.avg_latency_ms) : "–"}</td><td class="num">${d.calls ? ms(d.p50_latency_ms) : "–"}</td><td class="num">${d.calls ? ms(d.p95_latency_ms) : "–"}</td>
+        <td class="num">${num(d.input_tokens)}</td><td class="num">${usd(d.cost_usd)}</td><td class="num">${d.calls ? usd(d.cost_usd / d.calls) : "–"}</td></tr>`;
+    }).join("");
+  $("decnote").textContent = `All deciders run on every message in parallel. Jev: ${usd(c.jev_price_input_per_m)}/1M input tokens, output free, abstain below confidence ${c.jev_min_confidence}. Rethink: ${c.rethink_corpus_size}-example corpus, Platt p = σ(${c.rethink_platt.a.toFixed(2)}·sim ${c.rethink_platt.b < 0 ? "−" : "+"} ${Math.abs(c.rethink_platt.b).toFixed(2)}), abstain below ${c.rethink_min_confidence}. Keyword: min strength ${c.keyword_min_strength}.`;
+
+  // Gemini
+  const g = s.gemini;
+  $("gemini").innerHTML = `<tr><th>Model</th><th class="num">Calls</th><th class="num">Errors</th><th class="num">Tokens in</th><th class="num">Tokens out (incl. thinking)</th><th class="num">Avg latency</th><th class="num">Cost</th><th class="num">Cost / call</th><th>Price / 1M (in / out)</th></tr>
+    <tr><td>${esc(c.gemini_model)}${c.gemini_enabled ? "" : ' <span class="chip bad">no key</span>'}</td><td class="num">${num(g.calls)}</td><td class="num ${g.errors ? "bad" : ""}">${num(g.errors)}</td>
+    <td class="num">${num(g.input_tokens)}</td><td class="num">${num(g.output_tokens)}</td><td class="num">${g.calls ? ms(g.avg_latency_ms) : "–"}</td>
+    <td class="num">${usd(g.cost_usd)}</td><td class="num">${g.calls ? usd(g.cost_usd / g.calls) : "–"}</td><td>$${c.gemini_price.InputPerM} / $${c.gemini_price.OutputPerM}</td></tr>`;
+
+  // Eval
+  renderEval(s.last_eval);
+  renderH2H(c, s);
+
+  // Recent
+  $("recent").innerHTML = `<tr><th>Time</th><th>Message</th><th>Expected</th><th>Final</th><th>By</th>${ORDER.map(n => `<th>${esc(NAME(n))}</th>`).join("")}<th class="num">Cost</th><th class="num">Latency</th><th>Reply</th></tr>` +
+    (s.recent || []).map(r => {
+      const o = r.outcome, cost = Object.values(o.verdicts).reduce((a, v) => a + v.cost_usd, 0) + (r.gemini?.cost_usd || 0);
+      const cells = ORDER.map(n => {
+        const v = o.verdicts[n];
+        if (!v) return `<td class="muted">–</td>`;
+        if (v.error) return `<td><span class="chip bad" title="${esc(v.error)}">error</span></td>`;
+        const eff = v.abstain || v.label === "ai" ? "ai" : v.label;
+        const diff = !o.override && eff !== o.label ? ' style="outline:1px dashed var(--warn)"' : "";
+        return `<td title="${esc(v.reason)}"><span class="chip ${eff === "ai" ? "ai" : "bot"}"${diff}>${esc(eff)}${v.abstain ? " ↑" : ""}</span> <span class="muted small">${v.confidence.toFixed(2)}</span></td>`;
+      }).join("");
+      const exp = r.expected ? `${routeChip(r.expected)} ${o.label === r.expected ? '<span class="bot">✓</span>' : '<span class="bad">✗</span>'}` : '<span class="muted">–</span>';
+      return `<tr><td class="muted">${new Date(r.at).toLocaleTimeString()}</td><td class="wrap">${esc(r.text)} <span class="muted small">${esc(r.source)}</span></td><td>${exp}</td>
+        <td>${routeChip(o.label || o.route)}${o.override ? ` <span class="muted small">${esc(o.override)}</span>` : ""}</td>
+        <td class="muted">${esc(NAME(o.active))}${o.fell_back ? ' <span class="warn small">fallback</span>' : ""}</td>${cells}
+        <td class="num">${usd(cost)}</td><td class="num">${num(r.latency_ms)} ms</td><td class="wrap muted small">${esc(r.reply).slice(0, 160)}</td></tr>`;
+    }).join("");
+}
+
+function renderEval(e) {
+  if (!e) { $("eval").innerHTML = `<tr><td class="muted">Not run yet. The eval sends each held-out message to every decider (Jev calls are billed; Gemini is not called).</td></tr>`; $("misses").innerHTML = ""; return; }
+  if (!(window.__evalRunning)) $("evalmeta").textContent = `last run ${new Date(e.at).toLocaleTimeString()} · ${e.scores[0]?.n || 0} messages`;
+  $("eval").innerHTML = `<tr><th>Decider</th><th class="num">Label accuracy</th><th class="num">Route accuracy</th><th class="num" title="should have gone to AI but got a canned answer">AI questions sent to bot</th><th class="num">Abstains</th><th class="num">Errors</th><th class="num">Avg latency</th><th class="num">p95</th><th class="num">Eval cost</th></tr>` +
+    e.scores.map(s => s.answered === 0 ? `<tr><td><b>${esc(NAME(s.decider))}</b></td><td colspan="7" class="bad">all ${s.n} calls failed: ${esc((s.items.find(i => i.verdict.error)?.verdict.error || "").slice(0, 160))}</td></tr>` : `<tr><td><b>${esc(NAME(s.decider))}</b></td><td class="num">${pct(s.label_accuracy)}${s.errors ? ` <span class="muted small">of ${s.answered}</span>` : ""}</td><td class="num">${pct(s.route_accuracy)}</td>
+      <td class="num ${s.wrong_bot ? "bad" : "bot"}">${s.wrong_bot}</td><td class="num">${s.abstains}</td><td class="num ${s.errors ? "bad" : ""}">${s.errors}</td>
+      <td class="num">${ms(s.avg_latency_ms)}</td><td class="num">${ms(s.p95_latency_ms)}</td><td class="num">${usd(s.total_cost_usd)}</td></tr>`).join("");
+  const miss = e.scores.flatMap(s => s.items.filter(i => !i.correct).map(i => ({...i, d: s.decider})));
+  $("misses").innerHTML = miss.length ? `<tr><th>Decider</th><th>Message</th><th>Expected</th><th>Got</th><th>Why</th></tr>` +
+    miss.map(i => `<tr><td>${esc(NAME(i.d))}</td><td class="wrap">${esc(i.text)}</td><td>${routeChip(i.expected)}</td><td>${routeChip(i.got)}</td><td class="wrap muted small">${esc(i.verdict.error || i.verdict.reason)}</td></tr>`).join("")
+    : `<tr><td class="muted">No misses.</td></tr>`;
+}
+
+function renderAB(c, s) {
+  const names = ORDER.filter(n => n !== "keyword");
+  const col = (n, f) => `<td class="num">${s.ab[n] && (s.ab[n].messages || s.ab[n].fallbacks) ? f(s.ab[n]) : "–"}</td>`;
+  const rows = [
+    ["Messages driven", a => num(a.messages)],
+    ["Answered by bot", a => a.messages ? `${num(a.bot_replies)} (${pct(a.bot_replies / a.messages)})` : "–"],
+    ["Accuracy on known-answer taps", a => a.gt_total ? `${pct(a.gt_correct / a.gt_total)} <span class="muted small">${a.gt_correct}/${a.gt_total}</span>` : "–"],
+    ["Fallbacks (failed in its slot)", a => num(a.fallbacks)],
+    ["Decision latency avg", a => a.messages ? ms(a.avg_decision_ms) : "–"],
+    ["End-to-end latency avg (decide + answer)", a => a.messages ? ms(a.avg_e2e_ms) : "–"],
+    ["End-to-end p50 / p95", a => a.messages ? `${ms(a.p50_e2e_ms)} / ${ms(a.p95_e2e_ms)}` : "–"],
+    ["Decider cost / message (the decision call only)", a => a.messages ? usd(a.decision_usd / a.messages) : "–"],
+    ["Gemini cost / message (replies this decider sent to AI)", a => a.messages ? usd(a.gemini_usd / a.messages) : "–"],
+    ["Total cost / message (decider + Gemini)", a => a.messages ? usd((a.decision_usd + a.gemini_usd) / a.messages) : "–"],
+  ];
+  $("ab").innerHTML = `<tr><th>While driving</th>${names.map(n => `<th class="num">${esc(NAME(n))}</th>`).join("")}</tr>` +
+    rows.map(([label, f]) => `<tr><td>${label}</td>${names.map(n => col(n, f)).join("")}</tr>`).join("");
+  $("abnote").textContent = `This is what users actually experienced. In swap mode the driving decider alternates every ${c.swap_interval_s}s and the other runs as an async shadow, so it never delays the reply. Known-answer messages are rich menu taps and test questions. End-to-end latency is mostly Gemini when a message goes to AI.`;
+}
+
+// Head to head: accuracy comes from the labelled eval; latency and cost prefer the
+// eval run (same messages for both), and fall back to live traffic before an eval exists.
+function renderH2H(c, s) {
+  const ev = {}; (s.last_eval?.scores || []).forEach(x => ev[x.decider] = x);
+  const live = s.deciders;
+  const side = n => {
+    const e = ev[n]?.answered > 0 ? ev[n] : undefined, l = live[n];
+    const calls = e ? e.n : (l?.calls || 0);
+    return {
+      has: !!(e || l?.calls > (l?.errors || 0)), e,
+      labelAcc: e?.label_accuracy, routeAcc: e?.route_accuracy, wrongBot: e?.wrong_bot, abstains: e ? e.abstains : l?.abstains,
+      errors: e ? e.errors : l?.errors,
+      avg: e ? e.avg_latency_ms : l?.avg_latency_ms, p50: e ? e.p50_latency_ms : l?.p50_latency_ms, p95: e ? e.p95_latency_ms : l?.p95_latency_ms,
+      perCall: calls ? (e ? e.total_cost_usd : l.cost_usd) / calls : undefined,
+    };
+  };
+  const J = side("jev"), R = side("rethink");
+  for (const [k, o] of [["jev", J], ["rethink", R]]) {
+    const l = live[k];
+    o.liveAcc = l?.gt_total ? l.gt_correct / l.gt_total : undefined;
+    if (o.liveAcc != null) o.has = true;
+  }
+  // [label, key, format, better: "high"|"low"]
+  const rows = [
+    ["Label accuracy (eval)", "labelAcc", pct, "high"],
+    ["Accuracy on known-answer LINE taps (live, active + shadow)", "liveAcc", pct, "high"],
+    ["Route accuracy, bot vs AI (eval)", "routeAcc", pct, "high"],
+    ["AI questions sent to bot (eval)", "wrongBot", v => v, "low"],
+    ["Abstains → escalated to AI", "abstains", v => v, null],
+    ["Errors", "errors", v => v, "low"],
+    ["Latency avg", "avg", ms, "low"],
+    ["Latency p50", "p50", ms, "low"],
+    ["Latency p95", "p95", ms, "low"],
+    ["Throughput, one worker (≈ 1 / avg)", "avg", v => v > 0 ? Math.round(1000 / v).toLocaleString() + " /s" : "–", "low"],
+    ["Cost per decision", "perCall", usd, "low"],
+    ["Cost per 1M decisions", "perCall", v => usd(v * 1e6), "low"],
+  ];
+  const cell = (side, other, key, fmt, better) => {
+    const v = side[key], o = other[key];
+    if (!side.has || v == null) return `<td class="num muted">–</td>`;
+    const win = better && other.has && o != null && v !== o && (better === "high" ? v > o : v < o);
+    return `<td class="num ${win ? "win" : ""}">${fmt(v)}</td>`;
+  };
+  $("h2h").innerHTML = `<tr><th>Metric</th><th class="num">${esc(NAME("jev"))} ${c.jev_enabled ? "" : '<span class="chip bad">no key</span>'}</th><th class="num">Rethink</th></tr>` +
+    rows.map(([label, key, fmt, better]) => `<tr><td>${label}</td>${cell(J, R, key, fmt, better)}${cell(R, J, key, fmt, better)}</tr>`).join("");
+  $("h2hnote").textContent = (s.last_eval ? `Accuracy, latency and cost from the eval run at ${new Date(s.last_eval.at).toLocaleTimeString()} (${s.last_eval.scores[0].n} held-out labelled messages, identical for both).` : "Run the eval below for accuracy; latency and cost shown from live traffic.")
+    + ` Local latency is the mean of 200 repetitions per message (one call is below the OS clock resolution). Jev is billed per input token through Vercel AI Gateway (gateway-reported cost); Rethink runs in-process for free. "AI questions sent to bot" is the costly mistake: the user gets an irrelevant canned answer.`;
+}
+
+function renderAILogs(logs) {
+  $("ailogs").innerHTML = !logs.length ? `<tr><td class="muted">No AI calls in this range.</td></tr>` :
+    `<tr><th>Time</th><th>Routed by</th><th>Prompt</th><th>Reply</th><th class="num">Tokens in / out</th><th class="num">Cost</th><th class="num">Latency</th></tr>` +
+    logs.map(l => `<tr><td class="muted">${new Date(l.at).toLocaleString()}</td><td>${esc(NAME(l.decider))}</td><td class="wrap">${esc(l.prompt)}</td>
+      <td class="wrap muted small">${l.error ? `<span class="bad">${esc(l.error)}</span>` : esc(l.reply).slice(0, 200)}</td>
+      <td class="num">${num(l.input_tokens)} / ${num(l.output_tokens)}</td><td class="num">${usd(l.cost_usd)}</td><td class="num">${num(l.latency_ms)} ms</td></tr>`).join("");
+}
+
+async function refresh() {
+  const range = $("range").value;
+  try {
+    const d = await (await fetch("/api/stats?range=" + range)).json();
+    window.__now = d.now;
+    window.__cfg = d.config;
+    $("h2htitle").textContent = `${NAME("jev")} vs Rethink: head to head`;
+    const ev = d.eval || {};
+    window.__evalRunning = !!ev.running;
+    $("evalbtn").disabled = !!ev.running;
+    if (ev.running) $("evalmeta").textContent = `running… ${ev.done}/${ev.total} (rate-limited models are paced, this can take minutes)`;
+    $("src").innerHTML = d.source === "mongo"
+      ? `MongoDB · ${num(d.stored?.webhook_events)} webhooks · ${num(d.stored?.messages)} msgs · ${num(d.stored?.ai_logs)} AI calls${d.truncated ? " (truncated)" : ""}`
+      : '<span class="warn">memory only (set MONGO_URI)</span>';
+    render(d);
+    if (d.source === "mongo") renderAILogs(await (await fetch("/api/ai-logs?range=" + range)).json());
+    else $("ailogs").innerHTML = `<tr><td class="muted">Set MONGO_URI to keep an AI call log.</td></tr>`;
+  } catch (e) { $("cfg").textContent = "server unreachable"; }
+}
+
+async function send(ev) {
+  ev?.preventDefault();
+  const text = $("msg").value.trim();
+  if (!text) return;
+  await simulate({text});
+}
+
+async function simulate(body) {
+  $("send").disabled = true;
+  $("tryout").textContent = "…";
+  try {
+    const r = await (await fetch("/api/simulate", {method: "POST", body: JSON.stringify({user_id: "dashboard", ...body})})).json();
+    const o = r.outcome;
+    $("tryout").className = "reply";
+    const verdict = r.expected ? (o.label === r.expected ? ' <span class="bot">✓ correct</span>' : ` <span class="bad">✗ expected ${esc(r.expected)}</span>`) : "";
+    $("tryout").innerHTML = `${routeChip(o.label || o.route)}${verdict} via <b>${esc(NAME(o.active))}</b>${o.fell_back ? ` <span class="warn">(${esc(NAME("jev"))} failed, fell back)</span>` : ""} · ${r.latency_ms} ms\n\n${esc(r.reply)}`;
+    $("msg").value = "";
+  } catch (e) { $("tryout").textContent = "error: " + e; }
+  $("send").disabled = false;
+  refresh();
+}
+$("try").onsubmit = send;
+
+$("evalform").onsubmit = async ev => {
+  ev.preventDefault();
+  $("evalbtn").disabled = true;
+  $("evalmeta").textContent = "starting…";
+  await fetch("/api/eval", {method: "POST"});
+  refresh();
+};
+
+$("range").onchange = refresh;
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
