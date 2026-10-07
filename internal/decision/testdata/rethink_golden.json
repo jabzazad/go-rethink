@@ -1,0 +1,588 @@
+{
+ "A": 6.120601777724277,
+ "B": -1.530169970890312,
+ "Rows": [
+  {
+   "text": "สวัสดีครับแอดมิน",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9472188630313279
+  },
+  {
+   "text": "หวัดดีค่ะ",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9401231117945921
+  },
+  {
+   "text": "good morning",
+   "label": "hours",
+   "abstain": true,
+   "conf": 0.5296911601322347
+  },
+  {
+   "text": "มีเมนูอะไรบ้าง",
+   "label": "menu",
+   "abstain": false,
+   "conf": 0.8840287484931685
+  },
+  {
+   "text": "บอทช่วยอะไรได้",
+   "label": "menu",
+   "abstain": false,
+   "conf": 0.9128043003829626
+  },
+  {
+   "text": "เปิดกี่โมงครับ",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.9601587846274423
+  },
+  {
+   "text": "วันเสาร์เปิดไหมคะ",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.8344594660496488
+  },
+  {
+   "text": "ร้านปิดกี่โมง",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.9553728778747782
+  },
+  {
+   "text": "ขอเบอร์ติดต่อหน่อยครับ",
+   "label": "contact",
+   "abstain": false,
+   "conf": 0.8996179137826613
+  },
+  {
+   "text": "ขอคุยกับเจ้าหน้าที่",
+   "label": "contact",
+   "abstain": false,
+   "conf": 0.889355177553139
+  },
+  {
+   "text": "ค่าบริการเริ่มต้นกี่บาท",
+   "label": "price",
+   "abstain": false,
+   "conf": 0.8410698694803831
+  },
+  {
+   "text": "ราคาประมาณเท่าไหร่ครับ",
+   "label": "price",
+   "abstain": false,
+   "conf": 0.892779464687257
+  },
+  {
+   "text": "งานผมถึงไหนแล้วครับ",
+   "label": "status",
+   "abstain": false,
+   "conf": 0.9320994564514191
+  },
+  {
+   "text": "เช็คสถานะงานให้หน่อย",
+   "label": "status",
+   "abstain": false,
+   "conf": 0.9507607405073591
+  },
+  {
+   "text": "ขอบคุณมากค่ะ",
+   "label": "thanks",
+   "abstain": false,
+   "conf": 0.9508813057653813
+  },
+  {
+   "text": "thanks a lot",
+   "label": "thanks",
+   "abstain": false,
+   "conf": 0.7305317766835695
+  },
+  {
+   "text": "ท่อใต้ซิงค์ล้างจานรั่ว ต้องเปลี่ยนอะไหล่ตัวไหน",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.4274172597495452
+  },
+  {
+   "text": "แอร์เปิดแล้วมีกลิ่นอับ ล้างเองได้ไหม",
+   "label": "hours",
+   "abstain": true,
+   "conf": 0.5057084811192282
+  },
+  {
+   "text": "ราคาทาสีบ้านสองชั้นพื้นที่ 200 ตารางเมตรทั้งภายในและภายนอกประมาณกี่บาท",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.5000029781279728
+  },
+  {
+   "text": "เบรกเกอร์ตัดบ่อยตอนใช้เครื่องทำน้ำอุ่น เกิดจากอะไร",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.5679949567300856
+  },
+  {
+   "text": "ปูกระเบื้องทับกระเบื้องเดิมได้ไหม มีข้อเสียอะไร",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.6442279080369345
+  },
+  {
+   "text": "สถานะขึ้นว่ายกเลิกงาน แต่ผมไม่ได้กดยกเลิกเลย",
+   "label": "status",
+   "abstain": true,
+   "conf": 0.6253333079239021
+  },
+  {
+   "text": "should I use epoxy or polyurethane for a garage floor",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.36895511820966026
+  },
+  {
+   "text": "ฝ้าเพดานบวมเป็นคราบน้ำ ต้องรื้อทั้งแผ่นไหม",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.4083924161885045
+  },
+  {
+   "text": "สวัสดีครับ",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "สวัสดีค่ะ",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "หวัดดี",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "hello",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "hi there",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ดีครับ",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "สวัสดีตอนเช้าครับ",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "hey",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "เมนู",
+   "label": "menu",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ขอดูเมนู",
+   "label": "menu",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ช่วยอะไรได้บ้าง",
+   "label": "menu",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "menu",
+   "label": "menu",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "help",
+   "label": "menu",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ทำอะไรได้บ้าง",
+   "label": "menu",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "มีบริการอะไรบ้าง",
+   "label": "menu",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "เปิดกี่โมง",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ปิดกี่โมง",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "เวลาทำการ",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "เปิดวันไหนบ้าง",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "วันอาทิตย์เปิดไหม",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "opening hours",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "เปิดทำการกี่โมงถึงกี่โมง",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ขอเบอร์โทร",
+   "label": "contact",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ติดต่อเจ้าหน้าที่",
+   "label": "contact",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "อยากคุยกับคน",
+   "label": "contact",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ขอคุยกับแอดมิน",
+   "label": "contact",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "contact",
+   "label": "contact",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "เบอร์ติดต่อ",
+   "label": "contact",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ขอสายเจ้าหน้าที่หน่อย",
+   "label": "contact",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ราคาเท่าไหร่",
+   "label": "price",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ค่าบริการเท่าไร",
+   "label": "price",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "กี่บาท",
+   "label": "price",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "price",
+   "label": "price",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ราคาเริ่มต้นเท่าไหร่",
+   "label": "price",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "คิดค่าบริการยังไง",
+   "label": "price",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ขอราคาหน่อย",
+   "label": "price",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "เช็คสถานะงาน",
+   "label": "status",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "งานถึงไหนแล้ว",
+   "label": "status",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "สถานะงาน",
+   "label": "status",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ช่างจะมากี่โมง",
+   "label": "status",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "track my job",
+   "label": "status",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ติดตามงาน",
+   "label": "status",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "งานของผมเป็นยังไงบ้าง",
+   "label": "status",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ขอบคุณครับ",
+   "label": "thanks",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ขอบคุณค่ะ",
+   "label": "thanks",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ขอบใจ",
+   "label": "thanks",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "thank you",
+   "label": "thanks",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "thx",
+   "label": "thanks",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ขอบคุณมากครับ",
+   "label": "thanks",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ห้องน้ำรั่วซึมจากเพดานชั้นสอง ควรเริ่มตรวจจากตรงไหนก่อนดี",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "แอร์มีน้ำหยดตลอดเวลาเกิดจากอะไรได้บ้าง",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "อยากรู้ว่าราคาติดตั้งแอร์ 2 เครื่องพร้อมเดินท่อใหม่ทั้งหมดประมาณเท่าไหร่",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "บ้านไฟตกบ่อยมากตอนเปิดแอร์พร้อมกันหลายเครื่อง ต้องแก้ยังไง",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ผนังมีรอยร้าวแนวทแยงข้างหน้าต่าง อันตรายไหม",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ควรเลือกกระเบื้องแบบไหนสำหรับห้องน้ำที่ลื่นง่าย",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ช่างมาซ่อมไปแล้วแต่ปั๊มน้ำยังดังอยู่เลย ทำยังไงดี",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "เปรียบเทียบสีทาภายนอกแบบอะคริลิกกับแบบน้ำมันให้หน่อย",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "how do I fix a leaking kitchen faucet",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "what's the difference between inverter and non-inverter air conditioners",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "หลังคาโรงรถเป็นสนิม ควรทาสีทับหรือเปลี่ยนใหม่",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ราคาเปลี่ยนหลังคาเมทัลชีท 80 ตารางเมตร พร้อมรื้อของเก่า รวมค่าแรงไหม",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "สถานะงานผมขึ้นว่าเสร็จแล้วแต่ช่างยังไม่ได้มาเลย เกิดอะไรขึ้น",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "ติดตั้งโซลาร์เซลล์ 5kW คุ้มไหมถ้าค่าไฟเดือนละ 3000",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "น้ำประปาไหลแรงไม่พอชั้นบน ต้องใช้ปั๊มแบบไหน",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "มดขึ้นบ้านเยอะมาก มีวิธีกำจัดถาวรไหม",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.9899534815971809
+  },
+  {
+   "text": "",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.17796881837772355
+  },
+  {
+   "text": "   ",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.17796881837772355
+  },
+  {
+   "text": "x",
+   "label": "thanks",
+   "abstain": true,
+   "conf": 0.45151652877696147
+  },
+  {
+   "text": "hello world",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.9371809692097084
+  },
+  {
+   "text": "ขอบคุณครับ แล้วช่วยแนะนำหน่อยว่าแอร์ควรล้างกี่เดือน",
+   "label": "thanks",
+   "abstain": false,
+   "conf": 0.7697759187150846
+  },
+  {
+   "text": "ล้านเปืดกี่โมงนะ",
+   "label": "hours",
+   "abstain": false,
+   "conf": 0.7790018786335849
+  },
+  {
+   "text": "อื่นๆ",
+   "label": "ai",
+   "abstain": false,
+   "conf": 0.27196755264786754
+  },
+  {
+   "text": "/ai สวัสดี",
+   "label": "greeting",
+   "abstain": false,
+   "conf": 0.8821902106079123
+  }
+ ]
+}

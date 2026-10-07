@@ -45,7 +45,7 @@ Other credits: [Convai Innovations](https://huggingface.co/convaiinnovations/lay
 | What | Local, modelless nearest-neighbour engine | A hosted decision model, called through Vercel AI Gateway (`POST /v1/evaluate`) |
 | How it decides | Cosine over char 2/3-grams against a labelled corpus, Platt-calibrated `p = σ(A·sim + B)`, **abstains** below a threshold | One `choice` question over the intents + `ai`; returns probabilities |
 | Cost | Free, in-process | Free, but rate-limited to 5 req/min on Vercel's free tier |
-| Latency | ~0.04 ms | ~0.5–1.4 s |
+| Latency | ~0.9 µs per decision (was ~38 µs before the optimisation, same answers) | ~0.5–1.4 s |
 
 A keyword matcher runs alongside as a baseline. Each message is then answered by a canned handler or by Gemini.
 
@@ -53,7 +53,7 @@ Whichever decider is "driving" answers the user. The others run in the backgroun
 
 ### Results so far (early, small samples)
 
-- **Held-out eval (24 labelled messages):** Rethink 96% accuracy, 0 AI questions wrongly sent to a canned handler, ~0.04 ms, $0. Keyword baseline 71%.
+- **Held-out eval (24 labelled messages):** Rethink 96% accuracy, 0 AI questions wrongly sent to a canned handler, ~1 µs, $0. Keyword baseline 71%.
 - **Play test (16 real LINE messages, judged by hand):** Rethink looked right on 5/5; Laya on about 4/10 (it read "สวัสดี" as thanks, and gave an opening-hours reply to an unrelated question at 0.69 confidence).
 - **Caveats, please read:**
   - Rethink's corpus and the eval set were written by the same person and share phrasing, so Rethink has an advantage on this kind of test. Rethink needs a labelled corpus; the hosted models need none.
